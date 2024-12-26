@@ -1,0 +1,136 @@
+from flask import Flask, request, jsonify, abort
+import uuid
+from functools import wraps
+
+app = Flask(__name__)
+
+# In-memory database
+books = {}
+members = {}
+users = {"admin": "admin-token"}  # Predefined tokens for simplicity
+
+# Authentication decorator
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token or token not in users.values():
+            return jsonify({"message": "Token is missing or invalid"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+# Helper for pagination
+def paginate(items, page, per_page):
+    start = (page - 1) * per_page
+    end = start + per_page
+    return items[start:end]
+
+# Routes for Books
+@app.route('/books', methods=['GET'])
+@token_required
+def get_books():
+    search_title = request.args.get('title', '').lower()
+    search_author = request.args.get('author', '').lower()
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 10))
+
+    books_list = [book for book in books.values() if 
+                  search_title in book['title'].lower() or search_author in book['author'].lower()]
+
+    paginated_books = paginate(books_list, page, per_page)
+    return jsonify(paginated_books)
+
+@app.route('/books/<book_id>', methods=['GET'])
+@token_required
+def get_book(book_id):
+    book = books.get(book_id)
+    if not book:
+        abort(404, description="Book not found")
+    return jsonify(book)
+
+@app.route('/books', methods=['POST'])
+@token_required
+def add_book():
+    data = request.json
+    book_id = str(uuid.uuid4())
+    books[book_id] = {
+        "id": book_id,
+        "title": data["title"],
+        "author": data["author"],
+        "year": data.get("year"),
+    }
+    return jsonify(books[book_id]), 201
+
+@app.route('/books/<book_id>', methods=['PUT'])
+@token_required
+def update_book(book_id):
+    if book_id not in books:
+        abort(404, description="Book not found")
+    data = request.json
+    books[book_id].update({
+        "title": data.get("title", books[book_id]["title"]),
+        "author": data.get("author", books[book_id]["author"]),
+        "year": data.get("year", books[book_id].get("year")),
+    })
+    return jsonify(books[book_id])
+
+@app.route('/books/<book_id>', methods=['DELETE'])
+@token_required
+def delete_book(book_id):
+    if book_id not in books:
+        abort(404, description="Book not found")
+    del books[book_id]
+    return jsonify({"message": "Book deleted successfully"})
+
+# Routes for Members
+@app.route('/members', methods=['GET'])
+@token_required
+def get_members():
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 10))
+    members_list = list(members.values())
+    paginated_members = paginate(members_list, page, per_page)
+    return jsonify(paginated_members)
+
+@app.route('/members/<member_id>', methods=['GET'])
+@token_required
+def get_member(member_id):
+    member = members.get(member_id)
+    if not member:
+        abort(404, description="Member not found")
+    return jsonify(member)
+
+@app.route('/members', methods=['POST'])
+@token_required
+def add_member():
+    data = request.json
+    member_id = str(uuid.uuid4())
+    members[member_id] = {
+        "id": member_id,
+        "name": data["name"],
+        "email": data["email"],
+    }
+    return jsonify(members[member_id]), 201
+
+@app.route('/members/<member_id>', methods=['PUT'])
+@token_required
+def update_member(member_id):
+    if member_id not in members:
+        abort(404, description="Member not found")
+    data = request.json
+    members[member_id].update({
+        "name": data.get("name", members[member_id]["name"]),
+        "email": data.get("email", members[member_id]["email"]),
+    })
+    return jsonify(members[member_id])
+
+@app.route('/members/<member_id>', methods=['DELETE'])
+@token_required
+def delete_member(member_id):
+    if member_id not in members:
+        abort(404, description="Member not found")
+    del members[member_id]
+    return jsonify({"message": "Member deleted successfully"})
+
+if __name__ == '__main__':
+    app.run(debug=True)
